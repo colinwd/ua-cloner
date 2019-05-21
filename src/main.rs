@@ -1,16 +1,37 @@
 use reqwest;
 use reqwest::Method;
 use serde::Deserialize;
-use std::error::Error;
+use std::env;
 use std::io::{self, Write};
 use std::process::Command;
-use std::{thread, time};
+use std::{result, thread, time};
 
-fn main() -> Result<(), Box<Error>> {
+type Result<T> = result::Result<T, String>;
+
+fn main() -> Result<()> {
+
+    let args: Vec<String> = env::args().collect();
+    if args.len() != 2 {
+        println!("Usage: ua-cloner <clone|update>")
+    }
+    let command = &args[1];
+
+    match command.to_ascii_lowercase().as_ref() {
+        "clone" => clone_repos(),
+        "update" => update_repos(),
+        c => return Err(format!("Unknown command {}", c))
+    }
+}
+
+fn update_repos() -> Result<()> {
+    unimplemented!()
+}
+
+fn clone_repos() -> Result<()> {
     let client = reqwest::Client::new();
     let token = "09184b2c4cf2e1a2e69e23c5515a888460eb9c65";
 
-    let repo_urls = get_repos(client, token)?;
+    let repo_urls = get_repos(client, token).map_err(|e| e.to_string())?;
 
     let mut threads = vec![];
     for repo_url in repo_urls {
@@ -20,7 +41,7 @@ fn main() -> Result<(), Box<Error>> {
                 .arg("-c")
                 .arg(format!("git clone {}", repo_url))
                 .output()
-                .expect(format!("Failed to execute clone for {}", repo_url).as_str());
+                .expect(format!("Failed to execute git clone for {}", repo_url).as_str());
             io::stdout().write_all(&output.stdout).unwrap();
         }));
     }
@@ -32,7 +53,7 @@ fn main() -> Result<(), Box<Error>> {
     Ok(())
 }
 
-fn get_repos(client: reqwest::Client, token: &str) -> Result<Vec<String>, reqwest::Error> {
+fn get_repos(client: reqwest::Client, token: &str) -> Result<Vec<String>> {
     let mut url =
         Some("https://api.github.com/orgs/urbanairship/repos?page=1&per_page=100".to_string());
     let mut response;
@@ -44,9 +65,9 @@ fn get_repos(client: reqwest::Client, token: &str) -> Result<Vec<String>, reqwes
         response = client
             .request(Method::GET, &address)
             .bearer_auth(token)
-            .send()?;
+            .send().map_err(|e| e.to_string())?;
 
-        let repos: Vec<Repo> = response.json()?;
+        let repos: Vec<Repo> = response.json().map_err(|e| e.to_string())?;
         for repo in repos {
             if repo.private
                 && !repo.archived
@@ -80,15 +101,13 @@ fn get_repos(client: reqwest::Client, token: &str) -> Result<Vec<String>, reqwes
 }
 
 fn get_next_page(link_header: String) -> Option<String> {
-    let next: Vec<String> = link_header
+    let next: Vec<&str> = link_header
         .split(",")
         .filter(|rel| rel.ends_with("rel=\"next\""))
-        .map(|s| s.to_string())
         .collect();
 
     Some(
-        next.get(0)
-            .map(|s| s.clone())?
+        next.get(0)?
             .split(";")
             .collect::<Vec<&str>>()
             .get(0)?
@@ -96,7 +115,7 @@ fn get_next_page(link_header: String) -> Option<String> {
             .trim_start_matches("<")
             .trim_end()
             .trim_end_matches(">")
-            .to_string(),
+            .to_owned(),
     )
 }
 
