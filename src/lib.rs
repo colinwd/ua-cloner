@@ -25,10 +25,6 @@ pub fn update_repos() -> Result<()> {
 
     repo_dirs.par_iter().for_each(|dir| update_local_repo(&dir));
 
-    // for repo_dir in repo_dirs {
-    //     update_local_repo(&repo_dir)
-    // }
-
     Ok(())
 }
 
