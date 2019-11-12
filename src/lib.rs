@@ -78,10 +78,10 @@ fn update_local_repo(path: &PathBuf) {
     let branch = String::from_utf8(check_branch.stdout).unwrap();
     let branch = branch.trim();
 
-    let changes = Command::new("git")
+    let changes = Command::new("sh")
         .current_dir(&path)
         .arg("-c")
-        .arg("diff --quiet")
+        .arg("git diff --quiet")
         .status()
         .expect(format!("Failed to run git diff on {}", path.display()).as_str());
     
