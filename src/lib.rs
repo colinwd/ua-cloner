@@ -1,3 +1,5 @@
+use std::{env, fs};
+use std::path::PathBuf;
 use reqwest;
 use reqwest::Method;
 use serde::Deserialize;
@@ -17,14 +19,20 @@ struct Repo {
 }
 
 pub fn update_repos() -> Result<()> {
-    unimplemented!()
+    let repo_dirs = get_local_repos().unwrap();
+
+    for repo_dir in repo_dirs {
+        update_local_repo(&repo_dir)
+    }
+
+    Ok(())
 }
 
 pub fn clone_repos() -> Result<()> {
     let client = reqwest::Client::new();
     let token = "09184b2c4cf2e1a2e69e23c5515a888460eb9c65";
 
-    let repo_urls = get_repos(client, token).map_err(|e| e.to_string())?;
+    let repo_urls = get_remote_repos(client, token).map_err(|e| e.to_string())?;
 
     let mut threads = vec![];
     for repo_url in repo_urls {
@@ -46,7 +54,50 @@ pub fn clone_repos() -> Result<()> {
     Ok(())
 }
 
-fn get_repos(client: reqwest::Client, token: &str) -> Result<Vec<String>> {
+fn update_local_repo(path: &PathBuf) {
+    let check_branch = Command::new("sh")
+        .current_dir(&path)
+        .arg("-c")
+        .arg("git rev-parse --abbrev-ref HEAD")
+        .output()
+        .expect(format!("Failed to get current branch for directory {}, is it a git repo?", path.display()).as_str());
+    
+    let branch = String::from_utf8(check_branch.stdout).unwrap();
+    let branch = branch.trim();
+
+    if branch == "master" {
+        println!("Updating {} to latest", path.display());
+        let update = Command::new("sh")
+            .arg("-c")
+            .arg("git pull")
+            .output()
+            .expect(format!("Failed to pull for directory {}", path.display()).as_str());
+        
+        io::stdout().write_all(&update.stdout).unwrap();
+    } else {
+        println!("Directory {} is on branch {}, skipping...", path.display(), branch.trim())
+    }
+}
+
+fn get_local_repos() -> Result<Vec<PathBuf>> {
+    let mut dirs: Vec<PathBuf> = vec![];
+    let current_dir = env::current_dir().unwrap();
+
+    for entry in fs::read_dir(current_dir).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+
+        let metadata = fs::metadata(&path).unwrap();
+
+        if metadata.is_dir() {
+            dirs.push(path);
+        }
+    }
+
+    Ok(dirs)
+}
+
+fn get_remote_repos(client: reqwest::Client, token: &str) -> Result<Vec<String>> {
     let mut url =
         Some("https://api.github.com/orgs/urbanairship/repos?page=1&per_page=100".to_string());
     let mut response;
