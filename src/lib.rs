@@ -1,10 +1,12 @@
-use std::{env, fs};
-use std::path::PathBuf;
+use rayon::prelude::*;
+
 use reqwest;
 use reqwest::Method;
 use serde::Deserialize;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::process::Command;
+use std::{env, fs};
 use std::{result, thread, time};
 
 type Result<T> = result::Result<T, String>;
@@ -21,37 +23,34 @@ struct Repo {
 pub fn update_repos() -> Result<()> {
     let repo_dirs = get_local_repos().unwrap();
 
-    for repo_dir in repo_dirs {
-        update_local_repo(&repo_dir)
-    }
+    repo_dirs.par_iter().for_each(|dir| update_local_repo(&dir));
+
+    // for repo_dir in repo_dirs {
+    //     update_local_repo(&repo_dir)
+    // }
 
     Ok(())
 }
 
-pub fn clone_repos() -> Result<()> {
+pub fn clone_repos(token: &str) -> Result<()> {
     let client = reqwest::Client::new();
-    let token = "09184b2c4cf2e1a2e69e23c5515a888460eb9c65";
 
     let repo_urls = get_remote_repos(client, token).map_err(|e| e.to_string())?;
 
-    let mut threads = vec![];
-    for repo_url in repo_urls {
-        threads.push(thread::spawn(move || {
-            println!("Cloning {}...", repo_url);
-            let output = Command::new("sh")
-                .arg("-c")
-                .arg(format!("git clone {}", repo_url))
-                .output()
-                .expect(format!("Failed to execute git clone for {}", repo_url).as_str());
-            io::stdout().write_all(&output.stdout).unwrap();
-        }));
-    }
-
-    for thread in threads {
-        let _ = thread.join();
-    }
+    repo_urls.par_iter().for_each(|url| clone_remote_repo(&url));
 
     Ok(())
+}
+
+fn clone_remote_repo(repo_url: &str) {
+    println!("Cloning {}...", repo_url);
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(format!("git clone {}", repo_url))
+        .output()
+        .expect(format!("Failed to execute git clone for {}", repo_url).as_str());
+    io::stdout().write_all(&output.stdout).unwrap();
+    io::stderr().write_all(&output.stderr).unwrap();
 }
 
 fn update_local_repo(path: &PathBuf) {
@@ -60,22 +59,40 @@ fn update_local_repo(path: &PathBuf) {
         .arg("-c")
         .arg("git rev-parse --abbrev-ref HEAD")
         .output()
-        .expect(format!("Failed to get current branch for directory {}, is it a git repo?", path.display()).as_str());
-    
+        .expect(
+            format!(
+                "Failed to get current branch for directory {}",
+                path.display()
+            )
+            .as_str(),
+        );
+
+    match check_branch.status.code() {
+        Some(0) => (),
+        _ => {
+            println!("{} is not a Git repo, skipping...", path.display());
+            return;
+        }
+    };
+
     let branch = String::from_utf8(check_branch.stdout).unwrap();
     let branch = branch.trim();
 
     if branch == "master" {
         println!("Updating {} to latest", path.display());
-        let update = Command::new("sh")
-            .arg("-c")
-            .arg("git pull")
+        let update = Command::new("git")
+            .arg("pull")
+            .current_dir(path)
             .output()
             .expect(format!("Failed to pull for directory {}", path.display()).as_str());
-        
         io::stdout().write_all(&update.stdout).unwrap();
+        io::stderr().write_all(&update.stderr).unwrap();
     } else {
-        println!("Directory {} is on branch {}, skipping...", path.display(), branch.trim())
+        println!(
+            "Directory {} is on branch {}, skipping...",
+            path.display(),
+            branch.trim()
+        )
     }
 }
 
@@ -109,7 +126,8 @@ fn get_remote_repos(client: reqwest::Client, token: &str) -> Result<Vec<String>>
         response = client
             .request(Method::GET, &address)
             .bearer_auth(token)
-            .send().map_err(|e| e.to_string())?;
+            .send()
+            .map_err(|e| e.to_string())?;
 
         let repos: Vec<Repo> = response.json().map_err(|e| e.to_string())?;
         for repo in repos {

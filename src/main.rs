@@ -14,8 +14,19 @@ fn main() {
 
     let command = &args[1];
 
+    let key = "GITHUB_TOKEN";
+    let token = env::var(key);
+    let token = match token {
+        Ok(value) => value,
+        Err(e) => {
+            println!("Couldn't read environment variable {}", key);
+            println!("{}", e);
+            process::exit(1);
+        }
+    };
+
     let result = match command.to_ascii_lowercase().as_ref() {
-        "clone" => clone_repos(),
+        "clone" => clone_repos(&token),
         "update" => update_repos(),
         c => Err(format!("Unknown command {}", c))
     };
