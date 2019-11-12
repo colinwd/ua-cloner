@@ -78,6 +78,21 @@ fn update_local_repo(path: &PathBuf) {
     let branch = String::from_utf8(check_branch.stdout).unwrap();
     let branch = branch.trim();
 
+    let changes = Command::new("git")
+        .current_dir(&path)
+        .arg("-c")
+        .arg("diff --quiet")
+        .status()
+        .expect(format!("Failed to run git diff on {}", path.display()).as_str());
+    
+    match changes.code() {
+        Some(0) => (),
+        _ => {
+            println!("{} has unstaged changes, skipping...", path.display());
+            return;
+        }
+    };
+
     if branch == "master" {
         println!("Updating {} to latest", path.display());
         let update = Command::new("git")
